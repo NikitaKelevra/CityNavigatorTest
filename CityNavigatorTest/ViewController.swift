@@ -11,6 +11,7 @@ import CoreLocation
 
 class ViewController: UIViewController {
     
+    // MARK: - Properties
     let mapView: MKMapView = {
         let mapView = MKMapView()
         mapView.translatesAutoresizingMaskIntoConstraints = false
@@ -40,11 +41,13 @@ class ViewController: UIViewController {
         return button
     }()
     
-
-// MARK:
+    var annotationArray = [MKPointAnnotation]()
+    
+    // MARK: - Override func viewDidLoad()
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        mapView.delegate = self
         
         setConstraints()
         
@@ -59,26 +62,105 @@ class ViewController: UIViewController {
         
     }
 
-    
-    @objc func addAdressButtonTapped() {
-        print("Tap Add")
-        alertAddAdress(title: "Добавить", placeholder: "Введите адрес") { (text) in
-            print(text)
+    // MARK: - func
+    private func addAdressButtonTapped() {
+
+        alertAddAdress(title: "Добавить", placeholder: "Введите адрес") { [self] (text) in
+            setupPlacemarek(adressPlace: text)
         }
-//        alertError(title: "Ошибка", message: "Сервер недоступен")
     }
     
-    @objc func routeAdressButtonTapped() {
-        print("Tap Route")
+    private func routeAdressButtonTapped() {
+        
+        for index in 0...annotationArray.count - 2 {
+            createDirectionRequest(startCoordinate: annotationArray[index].coordinate,
+                                   destinationCoordinate: annotationArray[index + 1].coordinate)
+        }
+        mapView.showAnnotations(annotationArray, animated: true)
+    }
+    private func resetAdressButtonTapped() {
+        mapView.removeOverlays(mapView.overlays)
+        mapView.removeAnnotations(mapView.annotations)
+        annotationArray = []
+        routeAdressButton.isHidden = true
+        resetAdressButton.isHidden = true
     }
     
-    @objc func resetAdressButtonTapped() {
-        print("Tap Reset")
+    // MARK: - Private func
+    private func setupPlacemarek(adressPlace: String) {
+        let geocoder = CLGeocoder()
+        geocoder.geocodeAddressString(adressPlace) { [self] (placemark, error) in
+            
+            if let error = error {
+                print(error)
+                alertError(title: "Ошибка", message: "Сервер не доступен, попробуйте добавить адрем еще раз")
+                return
+            }
+            
+            guard let placemarks = placemark else { return }
+            let placemark = placemarks.first
+            
+            let annotation = MKPointAnnotation()
+            annotation.title = "\(adressPlace)"
+            guard let placemarkLocation = placemark?.location else { return }
+            annotation.coordinate = placemarkLocation.coordinate
+            
+            annotationArray.append(annotation)
+            
+            if annotationArray.count > 2 {
+                routeAdressButton.isHidden = false
+                resetAdressButton.isHidden = false
+            }
+            
+            mapView.showAnnotations(annotationArray, animated: true)
+        }
     }
     
+    private func createDirectionRequest(startCoordinate: CLLocationCoordinate2D, destinationCoordinate: CLLocationCoordinate2D) {
+        let startLocation = MKPlacemark(coordinate: startCoordinate)
+        let destinationLocation = MKPlacemark(coordinate: destinationCoordinate)
+        
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: startLocation)
+        request.destination = MKMapItem(placemark: destinationLocation)
+        request.transportType = .walking  // выбор типа  передвижения
+        request.requestsAlternateRoutes = true  // показывать ли альтернативные пути
+        
+        let direction  = MKDirections(request: request)
+        direction.calculate { (responce, error) in
+            if let error = error {
+                print(error)
+                return
+            }
+            
+            guard let responce = responce else {
+                self.alertError(title: "Ошибка", message: "Маршрут недоступен")
+                return
+            }
+            
+
+            var minRoute = responce.routes[0]
+            for route in responce.routes {
+                minRoute = (route.distance < minRoute.distance) ? route : minRoute // поиск самого коротного маршрута
+            }
+            
+            self.mapView.addOverlay(minRoute.polyline) //чтобы отобразилась надо подписать под протокол
+            
+        }
+    }
+}
+// MARK: -
+extension ViewController: MKMapViewDelegate {
     
+    func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+        let renderer = MKPolylineRenderer(overlay: overlay as! MKPolyline)
+        renderer.strokeColor = .red
+        return renderer
+    }
 }
 
+
+// MARK: - Constraints sets
 extension ViewController {
     //установка констрейнтов для карты - на весь экран
     func setConstraints() {
@@ -115,3 +197,6 @@ extension ViewController {
         ])
     }
 }
+// Санкт-Петербург, Некрасова 22
+// Санкт-Петербург, Пестеля 2
+// Санкт-Петербург, Кондратьевский проспект 1
